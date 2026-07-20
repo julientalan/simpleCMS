@@ -1,12 +1,13 @@
 """
 app.py — Standalone content editor tool (Flask).
-Compares original vs edited content and exports a before/after table in Word.
+Compares original vs edited page content and exports a before/after table in Word.
+Navigation, headers, footers and images are ignored — focus is on page copy only.
 """
 
 import io
 from urllib.parse import urljoin
 
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file
 from bs4 import BeautifulSoup, NavigableString
 from docx import Document
 from docx.shared import Pt, RGBColor
@@ -14,7 +15,11 @@ from docx.enum.section import WD_ORIENT
 
 app = Flask(__name__)
 
-IGNORED_ANCESTOR_TAGS = {"script", "style", "noscript", "template"}
+IGNORED_ANCESTOR_TAGS = {
+    "script", "style", "noscript", "template",
+    "nav", "header", "footer", "form", "button", "svg", "img",
+}
+IGNORED_CLASS_ID_HINTS = ("nav", "menu", "footer", "header", "cookie", "sidebar", "breadcrumb")
 
 PAGE_SHELL = """<!doctype html>
 <html lang="en">
@@ -47,7 +52,7 @@ iframe{{width:100%;height:80vh;border:1px solid #ddd;border-radius:8px;backgroun
   <button class="btn-load" onclick="loadPage()">Load</button>
   <button class="btn-export" onclick="exportContent()">Download</button>
 </div>
-<div class="__hint__">Click any text in the preview to edit it. Click an image to change its URL. Then click Download to get a before/after Word table.</div>
+<div class="__hint__">Click any text in the preview to edit it. Then click Download to get a before/after Word table (navigation, headers, footers and images are ignored).</div>
 <div class="__frame_wrap__">
   <iframe id="content_frame" srcdoc="{iframe_srcdoc}"></iframe>
 </div>
@@ -57,18 +62,16 @@ function loadPage(){{
   window.location = '/?url=' + encodeURIComponent(url) + '&dynamic=false';
 }}
 function exportContent(){{
-  var frame = document.getElementById('content_frame').contentWindow.document;
+  var iframeEl = document.getElementById('content_frame');
+  var win = iframeEl.contentWindow;
+  var doc = win.document;
+  var originals = win.__ORIGINALS__ || {{}};
   var data = [];
-  frame.querySelectorAll('[data-edit-id]').forEach(function(el){{
+  doc.querySelectorAll('[data-edit-id]').forEach(function(el){{
     var id = el.getAttribute('data-edit-id');
-    var original = frame.__ORIGINALS__ ? frame.__ORIGINALS__[id] : undefined;
-    if(el.tagName === 'IMG'){{
-      var current = el.getAttribute('src');
-      data.push({{type:'img', original: original, current: current}});
-    }} else {{
-      var current = el.textContent;
-      data.push({{type: el.getAttribute('data-tag'), original: original, current: current}});
-    }}
+    var current = el.textContent;
+    var original = (id in originals) ? originals[id] : current;
+    data.push({{original: original, current: current}});
   }});
   fetch('/export/docx', {{
     method: 'POST',
@@ -110,6 +113,11 @@ def absolutize(soup: BeautifulSoup, base_url: str) -> None:
                 el[attr] = urljoin(base_url, el[attr])
 
 
+def has_ignored_hint(el) -> bool:
+    identifier = " ".join([el.get("id", "")] + el.get("class", [])).lower()
+    return any(h in identifier for h in IGNORED_CLASS_ID_HINTS)
+
+
 def is_editable_text(node) -> bool:
     if not isinstance(node, NavigableString):
         return False
@@ -119,6 +127,8 @@ def is_editable_text(node) -> bool:
     while parent is not None:
         if getattr(parent, "name", None) in IGNORED_ANCESTOR_TAGS:
             return False
+        if has_ignored_hint(parent):
+            return False
         parent = parent.parent
     return True
 
@@ -126,39 +136,33 @@ def is_editable_text(node) -> bool:
 def make_editable_html(url: str, dynamic: bool) -> str:
     html = fetch_html(url, dynamic)
     soup = BeautifulSoup(html, "html.parser")
-    for bad in soup(["script"]):
+    for bad in soup(["script", "nav", "header", "footer", "form"]):
         bad.decompose()
     absolutize(soup, url)
 
     counter = 0
     for text_node in list(soup.find_all(string=True)):
         if is_editable_text(text_node):
-            parent_tag = text_node.parent.name if text_node.parent else "p"
-            heading_tag = parent_tag if parent_tag in ("h1", "h2", "h3", "h4") else "p"
             span = soup.new_tag("span")
             span["data-edit-id"] = f"t{counter}"
-            span["data-tag"] = heading_tag
             span["contenteditable"] = "true"
             span["style"] = "outline:1px dashed rgba(230,0,126,.4);outline-offset:1px;"
             span.string = str(text_node)
             text_node.replace_with(span)
             counter += 1
 
-    for img in soup.find_all("img"):
-        img["data-edit-id"] = f"i{counter}"
-        img["style"] = (img.get("style", "") or "") + ";cursor:pointer;outline:1px dashed rgba(0,114,206,.4);"
-        img["onclick"] = "var u=prompt('New image URL:', this.src); if(u){this.src=u;}"
-        counter += 1
-
     init_script = soup.new_tag("script")
     init_script.string = """
     window.__ORIGINALS__ = {};
     document.querySelectorAll('[data-edit-id]').forEach(function(el){
       var id = el.getAttribute('data-edit-id');
-      window.__ORIGINALS__[id] = (el.tagName === 'IMG') ? el.getAttribute('src') : el.textContent;
+      window.__ORIGINALS__[id] = el.textContent;
     });
     """
-    soup.body.append(init_script)
+    if soup.body:
+        soup.body.append(init_script)
+    else:
+        soup.append(init_script)
 
     return str(soup)
 
@@ -182,68 +186,4 @@ def index():
 
 def set_cell_text(cell, text, bold=False, color=None):
     cell.text = ""
-    p = cell.paragraphs[0]
-    run = p.add_run(text or "")
-    run.font.size = Pt(10)
-    run.bold = bold
-    if color:
-        run.font.color.rgb = color
-
-
-@app.route("/export/docx", methods=["POST"])
-def export_docx():
-    payload = request.get_json()
-    blocks = payload.get("blocks", [])
-
-    doc = Document()
-    section = doc.sections[0]
-    section.orientation = WD_ORIENT.LANDSCAPE
-    new_width, new_height = section.page_height, section.page_width
-    section.page_width = new_width
-    section.page_height = new_height
-
-    doc.add_heading("Content Update", level=1)
-    doc.add_paragraph(
-        "Left column: current content on the site. Right column: new content to paste into the CMS. "
-        "If the right column is empty, no change is needed for that item."
-    )
-
-    table = doc.add_table(rows=1, cols=2)
-    table.style = "Light Grid Accent 1"
-    hdr = table.rows[0].cells
-    set_cell_text(hdr[0], "Current content", bold=True)
-    set_cell_text(hdr[1], "New content", bold=True)
-
-    changed_color = RGBColor(0x00, 0x72, 0xCE)
-
-    for b in blocks:
-        original = (b.get("original") or "").strip()
-        current = (b.get("current") or "").strip()
-        if b.get("type") == "img":
-            label_orig = f"[Image] {original}"
-            label_new = f"[Image] {current}"
-        else:
-            label_orig = original
-            label_new = current
-
-        row = table.add_row().cells
-        if original == current:
-            set_cell_text(row[0], label_orig)
-            set_cell_text(row[1], "")
-        else:
-            set_cell_text(row[0], label_orig)
-            set_cell_text(row[1], label_new, bold=True, color=changed_color)
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    return send_file(
-        buf,
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        as_attachment=True,
-        download_name="content_update.docx",
-    )
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    
