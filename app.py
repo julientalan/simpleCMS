@@ -9,8 +9,9 @@ from urllib.parse import urljoin
 from flask import Flask, request, send_file, jsonify
 from bs4 import BeautifulSoup, NavigableString
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Mm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENT
 
 app = Flask(__name__)
 
