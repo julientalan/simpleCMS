@@ -196,7 +196,13 @@ def export_docx():
     payload = request.get_json()
     blocks = payload.get("blocks", [])
 
-    doc = Document()
+        doc = Document()
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE
+    new_width, new_height = section.page_height, section.page_width
+    section.page_width = new_width
+    section.page_height = new_height
+
     doc.add_heading("Content Update", level=1)
     doc.add_paragraph(
         "Left column: current content on the site. Right column: new content to paste into the CMS. "
