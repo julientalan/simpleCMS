@@ -1,9 +1,9 @@
 """
 app.py — Standalone content editor tool (Flask).
 Compares original vs edited page content and exports a before/after table in Word,
-plus a clean HTML copy for local review. Navigation/footer/forms are ignored,
-but headings (H1, H2...) are always treated as editable content — even inside a
-<header> wrapper, since that's often where page titles/heroes live.
+plus a clean HTML copy for local review. Navigation/footer/forms stay in the page
+(to preserve layout) but their text is never made editable. Headings (H1, H2...)
+are always treated as editable content, even inside a <header> wrapper.
 Images keep their remote URLs (nothing is embedded/downloaded).
 """
 
@@ -18,8 +18,8 @@ from docx.enum.section import WD_ORIENT
 
 app = Flask(__name__)
 
-HARD_REMOVE_TAGS = {"script", "style", "noscript", "template", "nav", "form", "button"}
-SOFT_IGNORE_TAGS = {"footer"}
+HARD_REMOVE_TAGS = {"script"}
+SOFT_IGNORE_TAGS = {"footer", "nav", "form", "button"}
 IGNORED_CLASS_ID_HINTS = ("nav", "menu", "footer", "cookie", "sidebar", "breadcrumb", "site-header", "topbar")
 
 PAGE_SHELL = """<!doctype html>
@@ -177,6 +177,8 @@ def make_editable_html(url: str, dynamic: bool) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for bad in soup(list(HARD_REMOVE_TAGS)):
         bad.decompose()
+    # Keep nav/form/button in the DOM for layout, but they'll never be made editable
+    # (handled by is_editable_text below).
     absolutize(soup, url)
 
     counter = 0
