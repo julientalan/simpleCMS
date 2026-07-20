@@ -1,14 +1,16 @@
 """
 app.py — Standalone content editor tool (Flask).
+Compares original vs edited content and exports a before/after table in Word.
 """
 
 import io
-import json
 from urllib.parse import urljoin
 
 from flask import Flask, request, send_file, jsonify
 from bs4 import BeautifulSoup, NavigableString
 from docx import Document
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 app = Flask(__name__)
 
@@ -41,35 +43,34 @@ iframe{{width:100%;height:80vh;border:1px solid #ddd;border-radius:8px;backgroun
   <img src="https://www.julienrio.com/images/logo.png" alt="logo">
   <strong>Content Editor</strong>
   <input type="text" id="url_input" placeholder="https://your-site.com/your-page" value="{url_value}">
-  <label style="color:#fff;font-size:13px;"><input type="checkbox" id="dynamic_flag" {dynamic_checked}> JS site (React/Vue)</label>
+  <input type="hidden" id="dynamic_flag" value="{dynamic_checked}">
   <button class="btn-load" onclick="loadPage()">Load</button>
-  <button class="btn-export" onclick="exportContent('md')">Export Markdown</button>
-  <button class="btn-export" onclick="exportContent('docx')">Export Word</button>
-  <button class="btn-export" onclick="exportContent('json')">Export JSON</button>
+  <button class="btn-export" onclick="exportContent()">Download</button>
 </div>
-<div class="__hint__">Click any text in the preview to edit it. Click an image to change its URL. Then export.</div>
+<div class="__hint__">Click any text in the preview to edit it. Click an image to change its URL. Then click Download to get a before/after Word table.</div>
 <div class="__frame_wrap__">
   <iframe id="content_frame" srcdoc="{iframe_srcdoc}"></iframe>
 </div>
 <script>
 function loadPage(){{
   var url = document.getElementById('url_input').value;
-  var dynamic = document.getElementById('dynamic_flag').checked;
-  window.location = '/?url=' + encodeURIComponent(url) + '&dynamic=' + dynamic;
+  window.location = '/?url=' + encodeURIComponent(url) + '&dynamic=false';
 }}
-function exportContent(fmt){{
+function exportContent(){{
   var frame = document.getElementById('content_frame').contentWindow.document;
   var data = [];
   frame.querySelectorAll('[data-edit-id]').forEach(function(el){{
+    var id = el.getAttribute('data-edit-id');
+    var original = frame.__ORIGINALS__ ? frame.__ORIGINALS__[id] : undefined;
     if(el.tagName === 'IMG'){{
-      data.push({{type:'img', src: el.getAttribute('src'), alt: el.getAttribute('alt') || ''}});
+      var current = el.getAttribute('src');
+      data.push({{type:'img', original: original, current: current}});
     }} else {{
-      var tag = el.getAttribute('data-tag');
-      var text = el.textContent.trim();
-      if(text) data.push({{type: tag, text: text}});
+      var current = el.textContent;
+      data.push({{type: el.getAttribute('data-tag'), original: original, current: current}});
     }}
   }});
-  fetch('/export/' + fmt, {{
+  fetch('/export/docx', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{blocks: data}})
@@ -77,7 +78,7 @@ function exportContent(fmt){{
     .then(function(blob){{
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'edited_content.' + fmt;
+      a.download = 'content_update.docx';
       a.click();
     }});
 }}
@@ -149,6 +150,16 @@ def make_editable_html(url: str, dynamic: bool) -> str:
         img["onclick"] = "var u=prompt('New image URL:', this.src); if(u){this.src=u;}"
         counter += 1
 
+    init_script = soup.new_tag("script")
+    init_script.string = """
+    window.__ORIGINALS__ = {};
+    document.querySelectorAll('[data-edit-id]').forEach(function(el){
+      var id = el.getAttribute('data-edit-id');
+      window.__ORIGINALS__[id] = (el.tagName === 'IMG') ? el.getAttribute('src') : el.textContent;
+    });
+    """
+    soup.body.append(init_script)
+
     return str(soup)
 
 
@@ -164,50 +175,68 @@ def index():
             iframe_srcdoc = f"<p style='padding:20px;color:red'>Error: {e}</p>".replace('"', "&quot;")
     return PAGE_SHELL.format(
         url_value=url,
-        dynamic_checked="checked" if dynamic else "",
+        dynamic_checked="true" if dynamic else "false",
         iframe_srcdoc=iframe_srcdoc,
     )
 
 
-@app.route("/export/<fmt>", methods=["POST"])
-def export(fmt):
+def set_cell_text(cell, text, bold=False, color=None):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    run = p.add_run(text or "")
+    run.font.size = Pt(10)
+    run.bold = bold
+    if color:
+        run.font.color.rgb = color
+
+
+@app.route("/export/docx", methods=["POST"])
+def export_docx():
     payload = request.get_json()
     blocks = payload.get("blocks", [])
 
-    if fmt == "json":
-        buf = io.BytesIO(json.dumps(blocks, ensure_ascii=False, indent=2).encode("utf-8"))
-        return send_file(buf, mimetype="application/json", as_attachment=True, download_name="edited_content.json")
+    doc = Document()
+    doc.add_heading("Content Update", level=1)
+    doc.add_paragraph(
+        "Left column: current content on the site. Right column: new content to paste into the CMS. "
+        "If the right column is empty, no change is needed for that item."
+    )
 
-    if fmt == "md":
-        lines = []
-        for b in blocks:
-            if b["type"] in ("h1", "h2", "h3", "h4"):
-                level = int(b["type"][1])
-                lines.append(f"{'#' * level} {b['text']}")
-            elif b["type"] == "img":
-                lines.append(f"![{b.get('alt','')}]({b['src']})")
-            else:
-                lines.append(b.get("text", ""))
-            lines.append("")
-        buf = io.BytesIO("\n".join(lines).encode("utf-8"))
-        return send_file(buf, mimetype="text/markdown", as_attachment=True, download_name="edited_content.md")
+    table = doc.add_table(rows=1, cols=2)
+    table.style = "Light Grid Accent 1"
+    hdr = table.rows[0].cells
+    set_cell_text(hdr[0], "Current content", bold=True)
+    set_cell_text(hdr[1], "New content", bold=True)
 
-    if fmt == "docx":
-        doc = Document()
-        for b in blocks:
-            if b["type"] in ("h1", "h2", "h3", "h4"):
-                doc.add_heading(b["text"], level=int(b["type"][1]))
-            elif b["type"] == "img":
-                doc.add_paragraph(f"[Image: {b['src']}]")
-            else:
-                doc.add_paragraph(b.get("text", ""))
-        buf = io.BytesIO()
-        doc.save(buf)
-        buf.seek(0)
-        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                          as_attachment=True, download_name="edited_content.docx")
+    changed_color = RGBColor(0x00, 0x72, 0xCE)
 
-    return jsonify({"error": "unknown format"}), 400
+    for b in blocks:
+        original = (b.get("original") or "").strip()
+        current = (b.get("current") or "").strip()
+        if b.get("type") == "img":
+            label_orig = f"[Image] {original}"
+            label_new = f"[Image] {current}"
+        else:
+            label_orig = original
+            label_new = current
+
+        row = table.add_row().cells
+        if original == current:
+            set_cell_text(row[0], label_orig)
+            set_cell_text(row[1], "")
+        else:
+            set_cell_text(row[0], label_orig)
+            set_cell_text(row[1], label_new, bold=True, color=changed_color)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name="content_update.docx",
+    )
 
 
 if __name__ == "__main__":
