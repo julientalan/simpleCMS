@@ -9,8 +9,7 @@ from urllib.parse import urljoin
 from flask import Flask, request, send_file, jsonify
 from bs4 import BeautifulSoup, NavigableString
 from docx import Document
-from docx.shared import Pt, RGBColor, Mm
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, RGBColor
 from docx.enum.section import WD_ORIENT
 
 app = Flask(__name__)
@@ -196,7 +195,7 @@ def export_docx():
     payload = request.get_json()
     blocks = payload.get("blocks", [])
 
-        doc = Document()
+    doc = Document()
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     new_width, new_height = section.page_height, section.page_width
