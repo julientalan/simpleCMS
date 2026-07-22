@@ -2,9 +2,8 @@
 app.py — Standalone content editor tool (Flask).
 
 Two-step flow:
-Step 1: Dark, polished landing screen ("Content Capture") with a discreet small
-        logo/brand line, title, subtitle, and a glassmorphism card containing
-        the URL field + Load button, over a subtle grid + glow background.
+Step 1: Minimal dark landing screen ("Content Capture") - title, subtitle, and a
+        single pill-shaped input+button field. No logo/branding.
 Step 2: Full-page preview only. Two buttons: "Work with AI" (downloads a prompt,
         then turns into "Import AI Result") and "Finished - Save Changes"
         (downloads Word + HTML, shows a clear confirmation modal with retry buttons
@@ -35,93 +34,86 @@ STEP1_SHELL = """<!doctype html>
 <title>Content Capture</title>
 <link rel="icon" type="image/png" href="https://www.julienrio.com/images/logo.png">
 <style>
-*{{box-sizing:border-box;}}
-html,body{{height:100%;margin:0;}}
+*{{margin:0;padding:0;box-sizing:border-box;}}
+html,body{{height:100%;}}
 body{{
-  font-family:'Inter','Segoe UI',Arial,sans-serif;
-  background:#0b0c17;
-  display:flex;align-items:center;justify-content:center;
-  color:#fff;
-  overflow:hidden;
-  position:relative;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+  background:#0a0a12;
+  color:#f5f5f7;
+  display:flex;
+  align-items:center;
+  justify-content:center;
 }}
-.__glow_a__{{position:absolute;top:-180px;left:-120px;width:420px;height:420px;border-radius:50%;
-  background:radial-gradient(circle, rgba(230,0,126,.35), transparent 70%);filter:blur(10px);}}
-.__glow_b__{{position:absolute;bottom:-200px;right:-140px;width:480px;height:480px;border-radius:50%;
-  background:radial-gradient(circle, rgba(0,114,206,.30), transparent 70%);filter:blur(10px);}}
-.__grid__{{position:absolute;inset:0;background-image:
-  linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
-  linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
-  background-size:48px 48px;}}
-
-.__wrap__{{position:relative;z-index:2;text-align:center;width:100%;max-width:520px;padding:0 24px;}}
-
-.__brand__{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:36px;opacity:.75;}}
-.__brand__ img{{height:20px;width:20px;border-radius:5px;}}
-.__brand__ span{{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9a9db8;}}
-
-.__title__{{font-size:30px;font-weight:700;margin:0 0 10px;color:#fff;letter-spacing:-.01em;}}
-.__subtitle__{{font-size:15px;color:#9a9db8;margin:0 0 40px;line-height:1.5;}}
-
-.__card__{{
-  background:rgba(255,255,255,.045);
-  border:1px solid rgba(255,255,255,.09);
-  border-radius:16px;
-  padding:8px;
-  display:flex;gap:8px;
-  box-shadow:0 20px 60px rgba(0,0,0,.45);
-  backdrop-filter:blur(10px);
+.wrap{{
+  width:100%;
+  max-width:460px;
+  padding:40px;
+  text-align:center;
 }}
-input[type=text]{{
+h1{{
+  font-size:32px;
+  font-weight:600;
+  margin-bottom:12px;
+  letter-spacing:-0.02em;
+}}
+p.sub{{
+  font-size:15px;
+  color:#8b8d98;
+  margin-bottom:36px;
+  line-height:1.5;
+}}
+.field{{
+  display:flex;
+  background:#16161f;
+  border:1px solid #26272f;
+  border-radius:12px;
+  padding:6px 6px 6px 18px;
+  align-items:center;
+}}
+.field input{{
   flex:1;
-  padding:15px 18px;
-  border-radius:11px;
+  background:transparent;
   border:none;
-  font-size:14px;
-  background:rgba(255,255,255,.05);
-  color:#fff;
   outline:none;
+  color:#f5f5f7;
+  font-size:15px;
+  padding:12px 8px;
   font-family:inherit;
 }}
-input[type=text]::placeholder{{color:#6f7290;}}
-input[type=text]:focus{{background:rgba(255,255,255,.09);}}
-button{{
+.field input::placeholder{{
+  color:#54555f;
+}}
+.field button{{
+  background:#f5f5f7;
+  color:#0a0a12;
   border:none;
-  padding:15px 28px;
-  border-radius:11px;
-  cursor:pointer;
+  border-radius:8px;
+  padding:12px 22px;
   font-size:14px;
   font-weight:600;
-  color:#fff;
-  background:linear-gradient(135deg,#e6007e,#8f0060);
-  transition:opacity .15s, transform .15s;
+  cursor:pointer;
   font-family:inherit;
-  white-space:nowrap;
 }}
-button:hover{{opacity:.92;transform:translateY(-1px);}}
-
-.__footnote__{{margin-top:22px;font-size:12.5px;color:#5c5f7a;}}
+.field button:hover{{
+  background:#e2e2e7;
+}}
+.hint{{
+  margin-top:20px;
+  font-size:13px;
+  color:#54555f;
+}}
 </style>
 </head>
 <body>
-<div class="__grid__"></div>
-<div class="__glow_a__"></div>
-<div class="__glow_b__"></div>
-
-<div class="__wrap__">
-  <div class="__brand__">
-    <img src="https://www.julienrio.com/images/logo.png" alt="logo">
-    <span>Julien Rio</span>
-  </div>
-  <p class="__title__">Content Capture</p>
-  <p class="__subtitle__">Paste a web page URL below to load its content, edit it directly<br>or rework it with your favorite AI.</p>
-  <div class="__card__">
+<div class="wrap">
+  <h1>Content Capture</h1>
+  <p class="sub">Paste a web page URL to load its content.<br>Edit it directly, or rework it with an AI.</p>
+  <div class="field">
     <input type="text" id="url_input" placeholder="https://your-site.com/your-page">
-    <button onclick="loadPage()">Load page</button>
+    <button onclick="loadPage()">Load</button>
   </div>
-  <p class="__footnote__">Works with any public web page &middot; No account needed</p>
+  <p class="hint">Works with any public web page</p>
 </div>
-
 <script>
 function loadPage(){{
   var url = document.getElementById('url_input').value;
@@ -529,39 +521,4 @@ def export_docx():
     table = doc.add_table(rows=1, cols=2)
     table.style = "Light Grid Accent 1"
     hdr = table.rows[0].cells
-    set_cell_text(hdr[0], "Current content", bold=True)
-    set_cell_text(hdr[1], "New content", bold=True)
-
-    changed_color = RGBColor(0x00, 0x72, 0xCE)
-    changes_found = 0
-
-    for b in blocks:
-        original = (b.get("original") or "").strip()
-        current = (b.get("current") or "").strip()
-        if not original and not current:
-            continue
-        if original == current:
-            continue
-        changes_found += 1
-        row = table.add_row().cells
-        set_cell_text(row[0], original)
-        set_cell_text(row[1], current, bold=True, color=changed_color)
-
-    if changes_found == 0:
-        row = table.add_row().cells
-        set_cell_text(row[0], "No changes detected.")
-        set_cell_text(row[1], "")
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    return send_file(
-        buf,
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        as_attachment=True,
-        download_name="content_update.docx",
-    )
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    set_cell_text(hdr[0], "Current content", 
