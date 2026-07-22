@@ -2,8 +2,9 @@
 app.py — Standalone content editor tool (Flask).
 
 Two-step flow:
-Step 1: Dark, polished landing screen with centered logo, title, subtitle and a
-        glassmorphism card containing the URL field + Load button.
+Step 1: Dark, polished landing screen ("Content Capture") with a discreet small
+        logo/brand line, title, subtitle, and a glassmorphism card containing
+        the URL field + Load button, over a subtle grid + glow background.
 Step 2: Full-page preview only. Two buttons: "Work with AI" (downloads a prompt,
         then turns into "Import AI Result") and "Finished - Save Changes"
         (downloads Word + HTML, shows a clear confirmation modal with retry buttons
@@ -31,68 +32,96 @@ STEP1_SHELL = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Content Editor</title>
+<title>Content Capture</title>
 <link rel="icon" type="image/png" href="https://www.julienrio.com/images/logo.png">
 <style>
+*{{box-sizing:border-box;}}
 html,body{{height:100%;margin:0;}}
 body{{
-  font-family:'Segoe UI',Arial,sans-serif;
-  background:radial-gradient(circle at 50% 0%, #22243a 0%, #14152a 55%, #0d0e1c 100%);
+  font-family:'Inter','Segoe UI',Arial,sans-serif;
+  background:#0b0c17;
   display:flex;align-items:center;justify-content:center;
   color:#fff;
+  overflow:hidden;
+  position:relative;
 }}
-.__center__{{text-align:center;width:100%;max-width:480px;padding:0 24px;}}
-.__logo_wrap__{{margin-bottom:28px;}}
-.__logo_wrap__ img{{height:56px;width:56px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);}}
-.__title__{{font-size:22px;font-weight:600;margin:0 0 6px;color:#fff;}}
-.__subtitle__{{font-size:14px;color:#9a9db8;margin:0 0 32px;}}
+.__glow_a__{{position:absolute;top:-180px;left:-120px;width:420px;height:420px;border-radius:50%;
+  background:radial-gradient(circle, rgba(230,0,126,.35), transparent 70%);filter:blur(10px);}}
+.__glow_b__{{position:absolute;bottom:-200px;right:-140px;width:480px;height:480px;border-radius:50%;
+  background:radial-gradient(circle, rgba(0,114,206,.30), transparent 70%);filter:blur(10px);}}
+.__grid__{{position:absolute;inset:0;background-image:
+  linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+  background-size:48px 48px;}}
+
+.__wrap__{{position:relative;z-index:2;text-align:center;width:100%;max-width:520px;padding:0 24px;}}
+
+.__brand__{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:36px;opacity:.75;}}
+.__brand__ img{{height:20px;width:20px;border-radius:5px;}}
+.__brand__ span{{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9a9db8;}}
+
+.__title__{{font-size:30px;font-weight:700;margin:0 0 10px;color:#fff;letter-spacing:-.01em;}}
+.__subtitle__{{font-size:15px;color:#9a9db8;margin:0 0 40px;line-height:1.5;}}
+
 .__card__{{
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(255,255,255,.09);
   border-radius:16px;
   padding:8px;
   display:flex;gap:8px;
-  box-shadow:0 12px 40px rgba(0,0,0,.35);
-  backdrop-filter:blur(6px);
+  box-shadow:0 20px 60px rgba(0,0,0,.45);
+  backdrop-filter:blur(10px);
 }}
 input[type=text]{{
   flex:1;
-  padding:14px 16px;
-  border-radius:10px;
+  padding:15px 18px;
+  border-radius:11px;
   border:none;
   font-size:14px;
-  background:rgba(255,255,255,.06);
+  background:rgba(255,255,255,.05);
   color:#fff;
   outline:none;
+  font-family:inherit;
 }}
-input[type=text]::placeholder{{color:#8a8db0;}}
-input[type=text]:focus{{background:rgba(255,255,255,.1);}}
+input[type=text]::placeholder{{color:#6f7290;}}
+input[type=text]:focus{{background:rgba(255,255,255,.09);}}
 button{{
   border:none;
-  padding:14px 26px;
-  border-radius:10px;
+  padding:15px 28px;
+  border-radius:11px;
   cursor:pointer;
   font-size:14px;
   font-weight:600;
   color:#fff;
-  background:linear-gradient(135deg,#e6007e,#a6006a);
+  background:linear-gradient(135deg,#e6007e,#8f0060);
   transition:opacity .15s, transform .15s;
+  font-family:inherit;
+  white-space:nowrap;
 }}
-button:hover{{opacity:.9;transform:translateY(-1px);}}
+button:hover{{opacity:.92;transform:translateY(-1px);}}
+
+.__footnote__{{margin-top:22px;font-size:12.5px;color:#5c5f7a;}}
 </style>
 </head>
 <body>
-<div class="__center__">
-  <div class="__logo_wrap__">
+<div class="__grid__"></div>
+<div class="__glow_a__"></div>
+<div class="__glow_b__"></div>
+
+<div class="__wrap__">
+  <div class="__brand__">
     <img src="https://www.julienrio.com/images/logo.png" alt="logo">
+    <span>Julien Rio</span>
   </div>
-  <p class="__title__">Content Editor</p>
-  <p class="__subtitle__">Paste a page URL to start editing its content</p>
+  <p class="__title__">Content Capture</p>
+  <p class="__subtitle__">Paste a web page URL below to load its content, edit it directly<br>or rework it with your favorite AI.</p>
   <div class="__card__">
     <input type="text" id="url_input" placeholder="https://your-site.com/your-page">
-    <button onclick="loadPage()">Load</button>
+    <button onclick="loadPage()">Load page</button>
   </div>
+  <p class="__footnote__">Works with any public web page &middot; No account needed</p>
 </div>
+
 <script>
 function loadPage(){{
   var url = document.getElementById('url_input').value;
