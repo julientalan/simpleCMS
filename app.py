@@ -2,7 +2,8 @@
 app.py — Standalone content editor tool (Flask).
 
 Two-step flow:
-Step 1: Empty screen, centered logo, URL field + Load button.
+Step 1: Dark, polished landing screen with centered logo, title, subtitle and a
+        glassmorphism card containing the URL field + Load button.
 Step 2: Full-page preview only. Two buttons: "Work with AI" (downloads a prompt,
         then turns into "Import AI Result") and "Finished - Save Changes"
         (downloads Word + HTML, shows a clear confirmation modal with retry buttons
@@ -34,21 +35,61 @@ STEP1_SHELL = """<!doctype html>
 <link rel="icon" type="image/png" href="https://www.julienrio.com/images/logo.png">
 <style>
 html,body{{height:100%;margin:0;}}
-body{{font-family:'Segoe UI',Arial,sans-serif;background:#f4f5f7;display:flex;align-items:center;justify-content:center;}}
-.__center__{{text-align:center;}}
-.__center__ img{{height:64px;width:64px;border-radius:10px;margin-bottom:20px;}}
-.__row__{{display:flex;gap:10px;width:420px;}}
-input[type=text]{{flex:1;padding:12px 14px;border-radius:8px;border:1px solid #ccc;font-size:14px;}}
-button{{border:none;padding:12px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;
-color:#fff;background:#e6007e;transition:opacity .15s;}}
-button:hover{{opacity:.85;}}
+body{{
+  font-family:'Segoe UI',Arial,sans-serif;
+  background:radial-gradient(circle at 50% 0%, #22243a 0%, #14152a 55%, #0d0e1c 100%);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;
+}}
+.__center__{{text-align:center;width:100%;max-width:480px;padding:0 24px;}}
+.__logo_wrap__{{margin-bottom:28px;}}
+.__logo_wrap__ img{{height:56px;width:56px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);}}
+.__title__{{font-size:22px;font-weight:600;margin:0 0 6px;color:#fff;}}
+.__subtitle__{{font-size:14px;color:#9a9db8;margin:0 0 32px;}}
+.__card__{{
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+  padding:8px;
+  display:flex;gap:8px;
+  box-shadow:0 12px 40px rgba(0,0,0,.35);
+  backdrop-filter:blur(6px);
+}}
+input[type=text]{{
+  flex:1;
+  padding:14px 16px;
+  border-radius:10px;
+  border:none;
+  font-size:14px;
+  background:rgba(255,255,255,.06);
+  color:#fff;
+  outline:none;
+}}
+input[type=text]::placeholder{{color:#8a8db0;}}
+input[type=text]:focus{{background:rgba(255,255,255,.1);}}
+button{{
+  border:none;
+  padding:14px 26px;
+  border-radius:10px;
+  cursor:pointer;
+  font-size:14px;
+  font-weight:600;
+  color:#fff;
+  background:linear-gradient(135deg,#e6007e,#a6006a);
+  transition:opacity .15s, transform .15s;
+}}
+button:hover{{opacity:.9;transform:translateY(-1px);}}
 </style>
 </head>
 <body>
 <div class="__center__">
-  <img src="https://www.julienrio.com/images/logo.png" alt="logo">
-  <div class="__row__">
-    <input type="text" id="url_input" placeholder="Paste the page URL to edit">
+  <div class="__logo_wrap__">
+    <img src="https://www.julienrio.com/images/logo.png" alt="logo">
+  </div>
+  <p class="__title__">Content Editor</p>
+  <p class="__subtitle__">Paste a page URL to start editing its content</p>
+  <div class="__card__">
+    <input type="text" id="url_input" placeholder="https://your-site.com/your-page">
     <button onclick="loadPage()">Load</button>
   </div>
 </div>
