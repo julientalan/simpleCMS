@@ -169,7 +169,7 @@ border-radius:6px;cursor:pointer;font-size:12px;}}
   <div class="__modal__">
     <h3>Working with AI</h3>
     <p>A file named <strong>ai_prompt.txt</strong> was just downloaded. Open it, add your instructions where indicated, and paste the whole content into your favorite AI (Perplexity, Claude, Mistral, ChatGPT...).</p>
-    <p>Once the AI gives you back the final result, save it as a <strong>.json</strong> file, then click <strong>Import AI Result</strong> below to bring it back into the page.</p>
+    <p>Ask the AI to give you back the final result as a downloadable <strong>.json</strong> file. Once you have it, click <strong>Import AI Result</strong> below to bring it back into the page.</p>
     <div class="row"><button class="btn-primary" onclick="closeOverlay('ai_overlay')">Got it</button></div>
   </div>
 </div>
@@ -236,7 +236,7 @@ function downloadPromptFile(){{
     "3. Rewrite/improve the 'text' values only, based on my instructions (see below).",
     "4. Do NOT change, remove, add, or reorder any 'id'. Keep the exact same number of blocks, in the exact same order.",
     "5. Do NOT add new keys or blocks. Only edit the 'text' value inside each block.",
-    "6. Return ONLY the final JSON object, with the exact same structure (source_url + blocks array with id/text), nothing else, no explanation, no markdown code fence.",
+    "6. Provide the final result as a downloadable .json file (not pasted as plain text in the chat), keeping the exact same structure (source_url + blocks array with id/text). If your interface cannot generate downloadable files, then reply with ONLY the final JSON object, no explanation, no markdown code fence, so I can copy it into a text file myself and save it with a .json extension.",
     "",
     "MY INSTRUCTIONS FOR THE REWRITE: [describe here what you want changed - tone, length, SEO, etc.]",
     "",
