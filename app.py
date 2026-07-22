@@ -1,10 +1,14 @@
 """
 app.py — Standalone content editor tool (Flask).
-Compares original vs edited page content and exports a before/after table in Word,
-plus a clean HTML copy for local review. Navigation/footer/forms stay in the page
-(to preserve layout) but their text is never made editable. Headings (H1, H2...)
-are always treated as editable content, even inside a <header> wrapper.
-Images keep their remote URLs (nothing is embedded/downloaded).
+
+Two-step flow:
+Step 1: Empty screen, centered logo, URL field + Load button.
+Step 2: Full-page preview only. Two buttons: "Work with AI" (downloads a prompt,
+        then turns into "Import AI Result") and "Finished - Save Changes"
+        (downloads Word + HTML, shows a clear confirmation modal with retry buttons
+        and a strong warning not to close the page before both files are saved).
+Short explanatory popups appear automatically when entering step 2, and briefly
+when clicking "Work with AI", so the user always knows what to do next.
 """
 
 import io
@@ -22,47 +26,136 @@ HARD_REMOVE_TAGS = {"script"}
 SOFT_IGNORE_TAGS = {"footer", "nav", "form", "button"}
 IGNORED_CLASS_ID_HINTS = ("nav", "menu", "footer", "cookie", "sidebar", "breadcrumb", "site-header", "topbar")
 
-PAGE_SHELL = """<!doctype html>
+STEP1_SHELL = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Content Editor</title>
 <link rel="icon" type="image/png" href="https://www.julienrio.com/images/logo.png">
 <style>
-body{{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#f4f5f7;}}
-.__app_bar__{{background:#1a1a2e;color:#fff;padding:14px 20px;display:flex;gap:10px;align-items:center;
-box-shadow:0 2px 8px rgba(0,0,0,.15);}}
-.__app_bar__ img{{height:28px;width:28px;border-radius:4px;}}
-.__app_bar__ input[type=text]{{flex:1;padding:9px 12px;border-radius:6px;border:none;font-size:14px;}}
-.__app_bar__ button{{border:none;padding:9px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;
-transition:opacity .15s;color:#fff;}}
-.__app_bar__ button:hover{{opacity:.85;}}
-.btn-load{{background:#e6007e;}}
-.btn-export{{background:#0072ce;}}
-.__frame_wrap__{{padding:16px;}}
-iframe{{width:100%;height:80vh;border:1px solid #ddd;border-radius:8px;background:#fff;}}
-.__hint__{{color:#555;font-size:13px;padding:0 20px 10px;}}
+html,body{{height:100%;margin:0;}}
+body{{font-family:'Segoe UI',Arial,sans-serif;background:#f4f5f7;display:flex;align-items:center;justify-content:center;}}
+.__center__{{text-align:center;}}
+.__center__ img{{height:64px;width:64px;border-radius:10px;margin-bottom:20px;}}
+.__row__{{display:flex;gap:10px;width:420px;}}
+input[type=text]{{flex:1;padding:12px 14px;border-radius:8px;border:1px solid #ccc;font-size:14px;}}
+button{{border:none;padding:12px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;
+color:#fff;background:#e6007e;transition:opacity .15s;}}
+button:hover{{opacity:.85;}}
 </style>
 </head>
 <body>
-<div class="__app_bar__">
+<div class="__center__">
   <img src="https://www.julienrio.com/images/logo.png" alt="logo">
-  <strong>Content Editor</strong>
-  <input type="text" id="url_input" placeholder="https://your-site.com/your-page" value="{url_value}">
-  <input type="hidden" id="dynamic_flag" value="{dynamic_checked}">
-  <button class="btn-load" onclick="loadPage()">Load</button>
-  <button class="btn-export" onclick="exportContent()">Download Word</button>
-  <button class="btn-export" onclick="exportHtml()">Download HTML</button>
-</div>
-<div class="__hint__">Click any text (including titles) in the preview to edit it. Navigation, footers and forms are ignored. Download Word for a before/after summary, or HTML for a full local review copy.</div>
-<div class="__frame_wrap__">
-  <iframe id="content_frame" srcdoc="{iframe_srcdoc}"></iframe>
+  <div class="__row__">
+    <input type="text" id="url_input" placeholder="Paste the page URL to edit">
+    <button onclick="loadPage()">Load</button>
+  </div>
 </div>
 <script>
 function loadPage(){{
   var url = document.getElementById('url_input').value;
+  if(!url) return;
   window.location = '/?url=' + encodeURIComponent(url) + '&dynamic=false';
 }}
+document.getElementById('url_input').addEventListener('keydown', function(e){{
+  if(e.key === 'Enter') loadPage();
+}});
+</script>
+</body>
+</html>"""
+
+STEP2_SHELL = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Content Editor</title>
+<link rel="icon" type="image/png" href="https://www.julienrio.com/images/logo.png">
+<style>
+html,body{{height:100%;margin:0;}}
+body{{font-family:'Segoe UI',Arial,sans-serif;background:#f4f5f7;}}
+.__app_bar__{{background:#1a1a2e;padding:12px 20px;display:flex;gap:10px;align-items:center;justify-content:flex-end;
+box-shadow:0 2px 8px rgba(0,0,0,.15);}}
+.__app_bar__ button{{border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;
+color:#fff;transition:opacity .15s;}}
+.__app_bar__ button:hover{{opacity:.85;}}
+.btn-ai{{background:#0072ce;}}
+.btn-finish{{background:#16a34a;}}
+.__frame_wrap__{{padding:16px;}}
+iframe{{width:100%;height:85vh;border:1px solid #ddd;border-radius:8px;background:#fff;}}
+
+.__overlay__{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);align-items:center;justify-content:center;z-index:50;}}
+.__modal__{{background:#fff;border-radius:10px;max-width:480px;width:90%;padding:24px;box-shadow:0 8px 30px rgba(0,0,0,.25);}}
+.__modal__ h3{{margin:0 0 12px;font-size:17px;}}
+.__modal__ p{{font-size:14px;line-height:1.5;color:#333;margin:0 0 12px;}}
+.__modal__ .warn{{background:#fff3f3;border:1px solid #f5a3a3;color:#7a1f1f;padding:10px 12px;border-radius:8px;
+font-size:13px;font-weight:600;margin-bottom:14px;}}
+.__modal__ .row{{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}}
+.__modal__ button{{border:none;padding:9px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;color:#fff;}}
+.btn-primary{{background:#0072ce;}}
+.btn-secondary{{background:#666;}}
+.btn-retry{{background:#e6a700;}}
+
+.__error_box__{{display:none;margin:0 20px 12px;padding:14px;background:#fff3f3;border:1px solid #f5a3a3;
+border-radius:8px;color:#7a1f1f;font-size:13px;white-space:pre-wrap;font-family:monospace;}}
+.__error_box__ button{{margin-top:8px;background:#7a1f1f;color:#fff;border:none;padding:6px 12px;
+border-radius:6px;cursor:pointer;font-size:12px;}}
+</style>
+</head>
+<body>
+<div class="__app_bar__">
+  <button class="btn-ai" id="ai_button" onclick="workWithAi()">Work with AI</button>
+  <input type="file" id="import_input" accept="application/json" style="display:none" onchange="importJson(event)">
+  <button class="btn-finish" onclick="finishEditing()">Finished - Save Changes</button>
+</div>
+<div class="__error_box__" id="error_box">
+  <div id="error_text"></div>
+  <button onclick="copyError()">Copy error</button>
+</div>
+<div class="__frame_wrap__">
+  <iframe id="content_frame" srcdoc="{iframe_srcdoc}"></iframe>
+</div>
+
+<div class="__overlay__" id="intro_overlay">
+  <div class="__modal__">
+    <h3>How this works</h3>
+    <p>Click any text on the page (including titles) to edit it directly. Or click <strong>Work with AI</strong> to rewrite the content with your favorite AI assistant. When you're done, click <strong>Finished - Save Changes</strong> to download your update.</p>
+    <div class="row"><button class="btn-primary" onclick="closeOverlay('intro_overlay')">Got it</button></div>
+  </div>
+</div>
+
+<div class="__overlay__" id="ai_overlay">
+  <div class="__modal__">
+    <h3>Working with AI</h3>
+    <p>A file named <strong>ai_prompt.txt</strong> was just downloaded. Open it, add your instructions where indicated, and paste the whole content into your favorite AI (Perplexity, Claude, Mistral, ChatGPT...).</p>
+    <p>Once the AI gives you back the final result, save it as a <strong>.json</strong> file, then click <strong>Import AI Result</strong> below to bring it back into the page.</p>
+    <div class="row"><button class="btn-primary" onclick="closeOverlay('ai_overlay')">Got it</button></div>
+  </div>
+</div>
+
+<div class="__overlay__" id="finish_overlay">
+  <div class="__modal__">
+    <h3>Your update is ready</h3>
+    <p>Two files have just been downloaded: <strong>content_update.docx</strong> and <strong>edited_page.html</strong>.</p>
+    <p>Please send <strong>both files</strong> to the web team so they can apply the update.</p>
+    <div class="warn">Important: make sure both files have downloaded successfully BEFORE closing this page. If you close it now, your changes will be lost.</div>
+    <div class="row">
+      <button class="btn-retry" onclick="downloadWord()">Retry Word download</button>
+      <button class="btn-retry" onclick="downloadHtml()">Retry HTML download</button>
+    </div>
+    <div class="row"><button class="btn-secondary" onclick="closeOverlay('finish_overlay')">Close</button></div>
+  </div>
+</div>
+
+<script>
+var SOURCE_URL = "{url_value}";
+var aiPromptDownloaded = false;
+
+function closeOverlay(id){{ document.getElementById(id).style.display = 'none'; }}
+function openOverlay(id){{ document.getElementById(id).style.display = 'flex'; }}
+
+window.addEventListener('load', function(){{ openOverlay('intro_overlay'); }});
+
 function getFrameParts(){{
   var iframeEl = document.getElementById('content_frame');
   var win = iframeEl.contentWindow;
@@ -70,7 +163,111 @@ function getFrameParts(){{
   var originals = win.__ORIGINALS__ || {{}};
   return {{win: win, doc: doc, originals: originals}};
 }}
-function exportContent(){{
+
+function collectBlocks(){{
+  var parts = getFrameParts();
+  var blocks = [];
+  parts.doc.querySelectorAll('[data-edit-id]').forEach(function(el){{
+    var id = el.getAttribute('data-edit-id');
+    blocks.push({{id: id, text: el.textContent}});
+  }});
+  return blocks;
+}}
+
+function showError(msg){{
+  document.getElementById('error_text').textContent = msg;
+  document.getElementById('error_box').style.display = 'block';
+}}
+function hideError(){{ document.getElementById('error_box').style.display = 'none'; }}
+function copyError(){{
+  navigator.clipboard.writeText(document.getElementById('error_text').textContent);
+}}
+
+function downloadPromptFile(){{
+  var blocks = collectBlocks();
+  var jsonPayload = JSON.stringify({{ source_url: SOURCE_URL, blocks: blocks }}, null, 2);
+  var prompt = [
+    "You are helping me rewrite the text content of a web page.",
+    "",
+    "INSTRUCTIONS:",
+    "1. The reference page (what it currently looks like) is here: " + SOURCE_URL,
+    "2. Below is a JSON object listing every editable text block on that page, each with a unique 'id' and its current 'text'.",
+    "3. Rewrite/improve the 'text' values only, based on my instructions (see below).",
+    "4. Do NOT change, remove, add, or reorder any 'id'. Keep the exact same number of blocks, in the exact same order.",
+    "5. Do NOT add new keys or blocks. Only edit the 'text' value inside each block.",
+    "6. Return ONLY the final JSON object, with the exact same structure (source_url + blocks array with id/text), nothing else, no explanation, no markdown code fence.",
+    "",
+    "MY INSTRUCTIONS FOR THE REWRITE: [describe here what you want changed - tone, length, SEO, etc.]",
+    "",
+    "JSON TO EDIT:",
+    jsonPayload
+  ].join("\\n");
+  var blob = new Blob([prompt], {{type: 'text/plain'}});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ai_prompt.txt';
+  a.click();
+}}
+
+function workWithAi(){{
+  hideError();
+  downloadPromptFile();
+  aiPromptDownloaded = true;
+  var btn = document.getElementById('ai_button');
+  btn.textContent = 'Import AI Result';
+  btn.onclick = function(){{ document.getElementById('import_input').click(); }};
+  openOverlay('ai_overlay');
+}}
+
+function importJson(event){{
+  hideError();
+  var file = event.target.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){{
+    var parsed;
+    try {{ parsed = JSON.parse(e.target.result); }}
+    catch(err){{
+      showError("The file is not valid JSON.\\n\\nDetails: " + err.message + "\\n\\nAsk your AI to fix the JSON syntax and return ONLY a valid JSON object (no markdown code fences, no extra text) with the same structure (source_url + blocks array with id/text).");
+      return;
+    }}
+    if(!parsed || !Array.isArray(parsed.blocks)){{
+      showError("The JSON is missing a 'blocks' array.\\n\\nAsk your AI to return the JSON in this exact structure:\\n{{\\n  \\"source_url\\": \\"...\\",\\n  \\"blocks\\": [ {{ \\"id\\": \\"t0\\", \\"text\\": \\"...\\" }}, ... ]\\n}}");
+      return;
+    }}
+    var parts = getFrameParts();
+    var currentIds = [];
+    parts.doc.querySelectorAll('[data-edit-id]').forEach(function(el){{ currentIds.push(el.getAttribute('data-edit-id')); }});
+    var newIds = parsed.blocks.map(function(b){{ return b.id; }});
+    var missing = currentIds.filter(function(id){{ return newIds.indexOf(id) === -1; }});
+    var extra = newIds.filter(function(id){{ return currentIds.indexOf(id) === -1; }});
+    var duplicates = newIds.filter(function(id, idx){{ return newIds.indexOf(id) !== idx; }});
+    if(missing.length || extra.length || duplicates.length || newIds.length !== currentIds.length){{
+      var msg = "The imported JSON does not match the original structure.\\n\\n";
+      msg += "Expected " + currentIds.length + " blocks, got " + newIds.length + ".\\n";
+      if(missing.length) msg += "\\nMissing ids (must be present, unchanged): " + missing.join(", ");
+      if(extra.length) msg += "\\nUnexpected ids (must be removed, not part of the original): " + extra.join(", ");
+      if(duplicates.length) msg += "\\nDuplicate ids (must be unique): " + duplicates.join(", ");
+      msg += "\\n\\nAsk your AI: 'Please fix the JSON so it contains exactly these ids, once each, in this order: " + currentIds.join(", ") + ". Do not add, remove, or duplicate any id. Only edit the text values.'";
+      showError(msg);
+      return;
+    }}
+    var textById = {{}};
+    parsed.blocks.forEach(function(b){{ textById[b.id] = b.text; }});
+    parts.doc.querySelectorAll('[data-edit-id]').forEach(function(el){{
+      var id = el.getAttribute('data-edit-id');
+      if(id in textById){{ el.textContent = textById[id]; }}
+    }});
+    hideError();
+    var btn = document.getElementById('ai_button');
+    btn.textContent = 'Work with AI';
+    btn.onclick = workWithAi;
+  }};
+  reader.readAsText(file);
+  event.target.value = "";
+}}
+
+function downloadWord(){{
   var parts = getFrameParts();
   var data = [];
   parts.doc.querySelectorAll('[data-edit-id]').forEach(function(el){{
@@ -79,7 +276,7 @@ function exportContent(){{
     var original = (id in parts.originals) ? parts.originals[id] : current;
     data.push({{original: original, current: current}});
   }});
-  fetch('/export/docx', {{
+  return fetch('/export/docx', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json'}},
     body: JSON.stringify({{blocks: data}})
@@ -91,7 +288,8 @@ function exportContent(){{
       a.click();
     }});
 }}
-function exportHtml(){{
+
+function downloadHtml(){{
   var parts = getFrameParts();
   var clone = parts.doc.documentElement.cloneNode(true);
   clone.querySelectorAll('[data-edit-id]').forEach(function(el){{
@@ -106,6 +304,14 @@ function exportHtml(){{
   a.href = URL.createObjectURL(blob);
   a.download = 'edited_page.html';
   a.click();
+}}
+
+function finishEditing(){{
+  hideError();
+  downloadWord().then(function(){{
+    setTimeout(downloadHtml, 400);
+    setTimeout(function(){{ openOverlay('finish_overlay'); }}, 500);
+  }});
 }}
 </script>
 </body>
@@ -177,8 +383,6 @@ def make_editable_html(url: str, dynamic: bool) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for bad in soup(list(HARD_REMOVE_TAGS)):
         bad.decompose()
-    # Keep nav/form/button in the DOM for layout, but they'll never be made editable
-    # (handled by is_editable_text below).
     absolutize(soup, url)
 
     counter = 0
@@ -212,17 +416,16 @@ def make_editable_html(url: str, dynamic: bool) -> str:
 def index():
     url = request.args.get("url", "")
     dynamic = request.args.get("dynamic", "false") == "true"
-    iframe_srcdoc = ""
-    if url:
-        try:
-            iframe_srcdoc = make_editable_html(url, dynamic).replace('"', "&quot;")
-        except Exception as e:
-            iframe_srcdoc = f"<p style='padding:20px;color:red'>Error: {e}</p>".replace('"', "&quot;")
-    return PAGE_SHELL.format(
-        url_value=url,
-        dynamic_checked="true" if dynamic else "false",
-        iframe_srcdoc=iframe_srcdoc,
-    )
+
+    if not url:
+        return STEP1_SHELL
+
+    try:
+        iframe_srcdoc = make_editable_html(url, dynamic).replace('"', "&quot;")
+    except Exception as e:
+        iframe_srcdoc = f"<p style='padding:20px;color:red'>Error: {e}</p>".replace('"', "&quot;")
+
+    return STEP2_SHELL.format(url_value=url, iframe_srcdoc=iframe_srcdoc)
 
 
 def set_cell_text(cell, text, bold=False, color=None):
