@@ -521,4 +521,39 @@ def export_docx():
     table = doc.add_table(rows=1, cols=2)
     table.style = "Light Grid Accent 1"
     hdr = table.rows[0].cells
-    set_cell_text(hdr[0], "Current content", 
+    set_cell_text(hdr[0], "Current content", bold=True)
+    set_cell_text(hdr[1], "New content", bold=True)
+
+    changed_color = RGBColor(0x00, 0x72, 0xCE)
+    changes_found = 0
+
+    for b in blocks:
+        original = (b.get("original") or "").strip()
+        current = (b.get("current") or "").strip()
+        if not original and not current:
+            continue
+        if original == current:
+            continue
+        changes_found += 1
+        row = table.add_row().cells
+        set_cell_text(row[0], original)
+        set_cell_text(row[1], current, bold=True, color=changed_color)
+
+    if changes_found == 0:
+        row = table.add_row().cells
+        set_cell_text(row[0], "No changes detected.")
+        set_cell_text(row[1], "")
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name="content_update.docx",
+    )
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
